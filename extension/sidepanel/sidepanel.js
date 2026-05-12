@@ -544,7 +544,7 @@ function initContainerEvents() {
     if (point.type === 'split') {
       const dst = sessions.find(s => s.id === point.targetId);
       if (!dst || srcId === point.targetId) return;
-      isInSplitTab(dst) ? reorderSession(srcId, point.targetId, 'after') : openSplit(src, dst);
+      openSplit(src, dst);
     } else {
       reorderSession(srcId, point.insertBeforeId);
     }
@@ -580,11 +580,6 @@ function reorderSession(srcId, insertBeforeId) {
   scheduleRender();
 }
 
-function isInSplitTab(sess) {
-  return Object.values(tabMap).some(
-    ({ paths }) => (paths?.length ?? 0) >= 2 && paths.some(p => p === sess.id || p.endsWith(sess.id))
-  );
-}
 
 // ── Action handlers ────────────────────────────────────────────────────────
 
@@ -723,36 +718,44 @@ function sessionURL(sess) {
   return sess.id ? `${BASE}/connect/${sess.id}` : `${BASE}/s/${sess.scheme}/new`;
 }
 
+// All split cases are handled by a single rule:
+//   - Already in the same tab → just focus it (no-op)
+//   - Prefer to navigate dst's tab; fall back to src's; create new if neither has one
+//   - Close whichever tab wasn't reused (single or split — any displaced partner
+//     session just goes to background, still running in the daemon)
+//
+// Case matrix:
+//   src\dst          background  single tab     split tab (w/ E)
+//   background       new tab     navigate dst   navigate dst, E→bg
+//   single tab       navigate src navigate dst, close src  navigate dst, close src, E→bg
+//   split (w/ D)     navigate src,D→bg  navigate dst,close src,D→bg  navigate dst,close src,D+E→bg
 function openSplit(sessA, sessB) {
-  const a = sessA.id || `${sessA.scheme}/${sessA.path || 'new'}`;
-  const b = sessB.id || `${sessB.scheme}/${sessB.path || 'new'}`;
-  const url = `${BASE}/split?a=${encodeURIComponent(a)}&b=${encodeURIComponent(b)}`;
+  const url = `${BASE}/split?a=${encodeURIComponent(sessA.id)}&b=${encodeURIComponent(sessB.id)}`;
 
-  // Reuse an existing tab rather than always spawning a new one.
-  // Prefer to navigate sessA's tab (the one being dragged), then sessB's.
-  // Close the other tab if it's a plain single-session tab (not already a split).
   const entryA = findTabEntry(sessA);
   const entryB = findTabEntry(sessB);
   const tabIdA = entryA ? parseInt(entryA[0]) : null;
   const tabIdB = entryB ? parseInt(entryB[0]) : null;
 
-  // Decide which existing tab to reuse and which to close.
-  const reuseId = tabIdA ?? tabIdB;
-  const closeId = reuseId === tabIdA ? tabIdB : tabIdA;
+  // Already split together in the same tab → just focus it.
+  if (tabIdA !== null && tabIdA === tabIdB) {
+    chrome.tabs.update(tabIdA, { active: true });
+    return;
+  }
 
+  // Prefer dst's tab so the split appears where the target already lives.
+  const reuseId = tabIdB ?? tabIdA ?? null;
   if (reuseId) {
     chrome.tabs.update(reuseId, { url, active: true });
   } else {
     chrome.tabs.create({ url });
   }
 
-  // Close the other single-session tab — but only if it's not a split view
-  // already (those paths.length >= 2) and not the same tab we just reused.
-  if (closeId && closeId !== reuseId) {
-    const closeEntry = closeId === tabIdA ? entryA : entryB;
-    const isSplit = (closeEntry?.[1]?.paths?.length ?? 0) >= 2;
-    if (!isSplit) chrome.tabs.remove(closeId);
-  }
+  // Close the tab that wasn't reused — whether it was single-session or a
+  // split. Any session that was sharing that tab simply moves to background
+  // (it keeps running in the daemon; the sidebar still shows it as minimized).
+  const closeId = reuseId === tabIdB ? tabIdA : tabIdB;
+  if (closeId != null) chrome.tabs.remove(closeId);
 }
 
 // ── Utilities ──────────────────────────────────────────────────────────────
