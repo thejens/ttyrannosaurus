@@ -1,0 +1,75 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>ttyrannosaurus split</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    html, body { height: 100%; background: #111; overflow: hidden; }
+    #container { display: flex; height: 100%; }
+    .pane { flex: 1; position: relative; }
+    .pane + .pane { border-left: 2px solid #333; }
+    iframe { width: 100%; height: 100%; border: none; display: block; }
+    .divider {
+      width: 4px;
+      background: #333;
+      cursor: col-resize;
+      flex-shrink: 0;
+      position: relative;
+      z-index: 10;
+    }
+    .divider:hover { background: #4a9eff; }
+  </style>
+</head>
+<body>
+<div id="container">
+  <div class="pane" id="pane-a">
+    <iframe id="frame-a" allow="clipboard-read; clipboard-write"></iframe>
+  </div>
+  <div class="divider" id="divider"></div>
+  <div class="pane" id="pane-b">
+    <iframe id="frame-b" allow="clipboard-read; clipboard-write"></iframe>
+  </div>
+</div>
+<script>
+  const params = new URLSearchParams(location.search);
+  const base = 'http://localhost:{{.Port}}';
+  const a = params.get('a') || '';
+  const b = params.get('b') || '';
+
+  if (a) document.getElementById('frame-a').src = `${base}/s/${a}`;
+  if (b) document.getElementById('frame-b').src = `${base}/s/${b}`;
+
+  // ── Draggable divider ──────────────────────────────────────────────────
+  const divider = document.getElementById('divider');
+  const container = document.getElementById('container');
+  let dragging = false, startX = 0, startA = 0;
+
+  divider.addEventListener('mousedown', e => {
+    dragging = true;
+    startX = e.clientX;
+    startA = document.getElementById('pane-a').offsetWidth;
+    document.body.style.cursor = 'col-resize';
+    // Prevent iframes from capturing mouse events during drag
+    document.querySelectorAll('iframe').forEach(f => f.style.pointerEvents = 'none');
+    e.preventDefault();
+  });
+
+  document.addEventListener('mousemove', e => {
+    if (!dragging) return;
+    const total = container.offsetWidth - divider.offsetWidth;
+    const newA = Math.min(Math.max(startA + (e.clientX - startX), 100), total - 100);
+    const newB = total - newA;
+    document.getElementById('pane-a').style.flex = `0 0 ${newA}px`;
+    document.getElementById('pane-b').style.flex = `0 0 ${newB}px`;
+  });
+
+  document.addEventListener('mouseup', () => {
+    if (!dragging) return;
+    dragging = false;
+    document.body.style.cursor = '';
+    document.querySelectorAll('iframe').forEach(f => f.style.pointerEvents = '');
+  });
+</script>
+</body>
+</html>

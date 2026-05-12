@@ -1,0 +1,456 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>ttyrannosaurus</title>
+  <link rel="icon" id="favicon" href="/static/ttyrannosaurus.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="/static/xterm.css">
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    html, body { height: 100%; overflow: hidden; }
+    body { background: {{.Background}}; }
+    #terminal { height: 100%; width: 100%; }
+    #displaced-overlay {
+      display: none;
+      position: fixed; inset: 0;
+      background: rgba(0,0,0,0.72);
+      backdrop-filter: blur(2px);
+      z-index: 100;
+      align-items: center;
+      justify-content: center;
+      flex-direction: column;
+      gap: 16px;
+      font-family: system-ui, -apple-system, sans-serif;
+      color: #d4d4d4;
+      text-align: center;
+    }
+    #displaced-overlay.show { display: flex; }
+    #displaced-overlay p { font-size: 14px; opacity: 0.85; }
+    #displaced-overlay .btn-row { display: flex; gap: 10px; }
+    #displaced-overlay button {
+      padding: 7px 18px; border-radius: 5px; font-size: 13px;
+      cursor: pointer; border: 1px solid #555;
+    }
+    #displaced-overlay .btn-primary {
+      background: #4a9eff; border-color: #4a9eff; color: #fff;
+    }
+    #displaced-overlay .btn-secondary { background: transparent; color: #aaa; }
+    #ended-overlay {
+      display: none;
+      position: fixed; inset: 0;
+      background: rgba(0,0,0,0.72);
+      backdrop-filter: blur(2px);
+      z-index: 100;
+      align-items: center;
+      justify-content: center;
+      flex-direction: column;
+      gap: 16px;
+      font-family: system-ui, -apple-system, sans-serif;
+      color: #d4d4d4;
+      text-align: center;
+    }
+    #ended-overlay.show { display: flex; }
+    #ended-overlay p { font-size: 14px; opacity: 0.85; }
+    #ended-overlay button {
+      padding: 7px 18px; border-radius: 5px; font-size: 13px;
+      cursor: pointer; border: 1px solid #555;
+      background: transparent; color: #aaa;
+    }
+    #not-found-overlay {
+      display: none;
+      position: fixed; inset: 0;
+      background: rgba(0,0,0,0.72);
+      backdrop-filter: blur(2px);
+      z-index: 100;
+      align-items: center;
+      justify-content: center;
+      flex-direction: column;
+      gap: 16px;
+      font-family: system-ui, -apple-system, sans-serif;
+      color: #d4d4d4;
+      text-align: center;
+    }
+    #not-found-overlay.show { display: flex; }
+    #not-found-overlay p { font-size: 14px; opacity: 0.85; }
+    #not-found-overlay .btn-row { display: flex; gap: 10px; }
+    #not-found-overlay button {
+      padding: 7px 18px; border-radius: 5px; font-size: 13px;
+      cursor: pointer; border: 1px solid #555;
+      background: transparent; color: #aaa;
+    }
+    #not-found-overlay .btn-primary {
+      background: #4a9eff; border-color: #4a9eff; color: #fff;
+    }
+    ::-webkit-scrollbar { width: 5px; height: 5px; }
+    ::-webkit-scrollbar-track { background: transparent; }
+    ::-webkit-scrollbar-thumb { background: #444; border-radius: 3px; }
+    ::-webkit-scrollbar-thumb:hover { background: #666; }
+  </style>
+</head>
+<body>
+  <div id="terminal"></div>
+  <div id="displaced-overlay">
+    <p>This session was opened in another tab.</p>
+    <div class="btn-row">
+      <button class="btn-primary" id="btn-bring-here">Bring here</button>
+      <button class="btn-secondary" id="btn-keep-watching">Keep watching</button>
+    </div>
+  </div>
+  <div id="ended-overlay">
+    <p>Session ended.</p>
+    <button id="btn-close-tab">Close tab</button>
+  </div>
+  <div id="not-found-overlay">
+    <p>Session not found.</p>
+    <div class="btn-row">
+      <button class="btn-primary" id="btn-new-terminal">New terminal</button>
+      <button id="btn-close-stale">Close tab</button>
+    </div>
+  </div>
+
+  <script src="/static/xterm.js"></script>
+  <script src="/static/xterm-addon-fit.js"></script>
+  <script src="/static/xterm-addon-webgl.js"></script>
+  <script src="/static/xterm-addon-web-links.js"></script>
+  <script>
+    const SESSION_ID = "{{.SessionID}}";
+    const THEME = {{.ThemeJSON}};
+
+    // ── Build xterm.js theme object from Ghostty settings ─────────────────
+
+    const ANSI_KEYS = [
+      'black','red','green','yellow','blue','magenta','cyan','white',
+      'brightBlack','brightRed','brightGreen','brightYellow',
+      'brightBlue','brightMagenta','brightCyan','brightWhite',
+    ];
+
+    const xtermTheme = {
+      background:           THEME.background || '#1a1a1a',
+      foreground:           THEME.foreground           || '#d4d4d4',
+      cursor:               THEME.cursor               || '#d4d4d4',
+      cursorAccent:         THEME.cursorAccent         || undefined,
+      selectionBackground:  THEME.selectionBackground  || undefined,
+      selectionForeground:  THEME.selectionForeground  || undefined,
+    };
+    if (THEME.colors) {
+      THEME.colors.forEach((hex, i) => {
+        if (hex && ANSI_KEYS[i]) xtermTheme[ANSI_KEYS[i]] = hex;
+      });
+    }
+
+    // ── Link handling ──────────────────────────────────────────────────────
+
+    const DAEMON = 'http://127.0.0.1:{{.Port}}';
+
+    // Called for every link click — routes to browser or editor.
+    // Alt+click (Option on macOS) on an http/https link triggers a side-by-side
+    // split: the current window is moved to the left half of the screen and a new
+    // window containing the URL opens on the right half.
+    function handleLinkClick(uri, line, ev) {
+      if (uri.startsWith('http://') || uri.startsWith('https://')) {
+        if (ev?.altKey) {
+          window.postMessage({
+            type: 'ttyrannosaurus:openInSplit',
+            url: uri,
+            screenW: window.screen.width,
+            screenH: window.screen.height,
+          }, '*');
+          return;
+        }
+        window.open(uri, '_blank', 'noopener');
+        return;
+      }
+      // file:// or bare path → open in configured editor via daemon
+      let path = uri.startsWith('file://') ? uri.slice(7) : uri;
+      // Strip trailing line hint that some tools append (path:42)
+      const lineMatch = path.match(/^(.+?):(\d+)(?::(\d+))?$/);
+      const col = lineMatch?.[3] ? parseInt(lineMatch[3]) : 0;
+      const resolvedLine = lineMatch ? parseInt(lineMatch[2]) : (line || 0);
+      if (lineMatch) path = lineMatch[1];
+      fetch(`${DAEMON}/api/open`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ path, line: resolvedLine, col }),
+      }).catch(() => {});
+    }
+
+    // OSC 8 link handler — intercepts Claude Code's file links and all
+    // standard hyperlinks embedded in terminal output.
+    const linkHandler = {
+      allowNonHttpProtocols: true, // required for file://
+      activate(ev, text) { handleLinkClick(text, 0, ev); },
+    };
+
+    const term = new Terminal({
+      linkHandler,
+      fontFamily:               THEME.fontFamily      || '"Menlo", "SF Mono", monospace',
+      fontSize:                 THEME.fontSize        || 13,
+      fontWeight:               THEME.fontWeight      || 'normal',
+      fontWeightBold:           THEME.fontWeightBold  || 'bold',
+      cursorStyle:              THEME.cursorStyle     || 'block',
+      cursorBlink:              THEME.cursorBlink     !== false,
+      scrollback:               THEME.scrollback      || 10000,
+      smoothScrollDuration:     125,   // ms — smooth inertia scrolling
+      drawBoldTextInBrightColors: !!THEME.boldIsBright,
+      theme:                    xtermTheme,
+      allowProposedApi:         true,
+    });
+
+    const fitAddon = new FitAddon.FitAddon();
+    term.loadAddon(fitAddon);
+    term.open(document.getElementById('terminal'));
+
+    // Plain-text URL detection (http/https in terminal output without OSC 8).
+    const webLinks = new WebLinksAddon.WebLinksAddon((ev, uri) => handleLinkClick(uri, 0, ev));
+    term.loadAddon(webLinks);
+
+    // Custom link provider for bare file paths: /abs/path.py, ./rel.go, ~/foo.ts
+    // Optionally with :line or :line:col suffix.
+    term.registerLinkProvider({
+      provideLinks(lineNum, callback) {
+        const line = term.buffer.active.getLine(lineNum - 1);
+        if (!line) { callback(undefined); return; }
+        const text = line.translateToString(true);
+        // Match absolute, home-relative, or relative paths, optionally :line:col
+        const re = /(?:^|[\s(["'])((~|\.{1,2})?\/[^\s)"'>]+?)(?::(\d+)(?::(\d+))?)?(?=$|[\s)"'>])/g;
+        const links = [];
+        let m;
+        while ((m = re.exec(text)) !== null) {
+          const fullMatch = m[0].replace(/^[\s(["']/, '');
+          const path = m[1];
+          const lineNo = m[3] ? parseInt(m[3]) : 0;
+          const col = m[4] ? parseInt(m[4]) : 0;
+          const startX = m.index + (m[0].length - fullMatch.length) + 1;
+          links.push({
+            range: {
+              start: { x: startX, y: lineNum },
+              end: { x: startX + fullMatch.length - 1, y: lineNum },
+            },
+            text: fullMatch,
+            activate(ev, txt) { handleLinkClick(path, lineNo, ev); },
+          });
+        }
+        callback(links.length ? links : undefined);
+      },
+    });
+
+    // WebGL renderer with DOM fallback.
+    try {
+      const webgl = new WebglAddon.WebglAddon();
+      webgl.onContextLoss(() => webgl.dispose());
+      term.loadAddon(webgl);
+    } catch (_) {}
+
+    fitAddon.fit();
+
+    // ── Custom keybindings ─────────────────────────────────────────────────
+
+    const keybindings = THEME.keybindings || [];
+
+    // Parse "shift+enter" → { shift, ctrl, alt, meta, key: "Enter" }
+    function parseCombo(combo) {
+      const parts = combo.toLowerCase().split('+');
+      const key = parts[parts.length - 1];
+      return {
+        shift: parts.includes('shift'),
+        ctrl:  parts.includes('ctrl') || parts.includes('control'),
+        alt:   parts.includes('alt')  || parts.includes('option'),
+        meta:  parts.includes('super') || parts.includes('cmd') || parts.includes('meta'),
+        key:   key === 'enter' ? 'Enter'
+             : key === 'tab'   ? 'Tab'
+             : key === 'space' ? ' '
+             : key.length === 1 ? key
+             : key,
+      };
+    }
+
+    const parsedBindings = keybindings.map(kb => ({
+      combo: parseCombo(kb.keys),
+      sequence: kb.sequence,
+    }));
+
+    // Browser shortcuts that should reach Chrome, not the PTY.
+    // Ghostty keybindings defined above take priority and can override these.
+    function isBrowserShortcut(ev) {
+      if (!ev.metaKey || ev.ctrlKey || ev.altKey) return false;
+      const k = ev.key.toLowerCase();
+      // Reload, close, open, navigate, zoom
+      if (!ev.shiftKey && (k === 'r' || k === 'w' || k === 't' || k === 'n' ||
+                           k === 'l' || k === '+' || k === '=' || k === '-' || k === '0')) return true;
+      if (ev.shiftKey  && (k === 'r' || k === 'n')) return true; // hard reload, incognito
+      // Cmd+1–9 tab switching
+      if (!ev.shiftKey && k >= '1' && k <= '9') return true;
+      return false;
+    }
+
+    term.attachCustomKeyEventHandler((ev) => {
+      if (ev.type !== 'keydown') return true;
+      // User-defined keybindings take priority over browser-shortcut passthrough.
+      for (const { combo, sequence } of parsedBindings) {
+        if (ev.key === combo.key &&
+            ev.shiftKey === combo.shift &&
+            ev.ctrlKey  === combo.ctrl  &&
+            ev.altKey   === combo.alt   &&
+            ev.metaKey  === combo.meta) {
+          if (ws && ws.readyState === WebSocket.OPEN) {
+            ws.send(new TextEncoder().encode(sequence));
+          }
+          return false;
+        }
+      }
+      // Pass browser shortcuts through — returning false prevents xterm from
+      // calling preventDefault(), so Chrome handles them normally.
+      if (isBrowserShortcut(ev)) return false;
+      return true;
+    });
+
+    // ── Copy on select ─────────────────────────────────────────────────────
+
+    if (THEME.copyOnSelect) {
+      term.onSelectionChange(() => {
+        const sel = term.getSelection();
+        if (sel) navigator.clipboard.writeText(sel).catch(() => {});
+      });
+    }
+
+    // ── WebSocket ──────────────────────────────────────────────────────────
+
+    let ws = null;
+    let reconnectTimer = null;
+    // Set to true once the daemon signals that replay is complete.
+    // xterm.js generates DA responses while processing the replay buffer;
+    // we suppress onData→WS forwarding until replay is done so those
+    // responses never reach the shell's readline.
+    let replayDone  = false;
+    let resizeTimer = null;
+
+    // Debounced: collapses rapid-fire calls (e.g. ResizeObserver + fitAddon.fit
+    // both firing during replay-end) into a single SIGWINCH, preventing the
+    // double-DA-response race that leaves "1;2c0;276;0c" in the shell input.
+    function sendResize() {
+      clearTimeout(resizeTimer);
+      resizeTimer = setTimeout(() => {
+        if (ws && ws.readyState === WebSocket.OPEN) {
+          ws.send(JSON.stringify({ type: 'resize', cols: term.cols, rows: term.rows }));
+        }
+      }, 50);
+    }
+
+    function connect() {
+      replayDone = false;
+      ws = new WebSocket(`ws://127.0.0.1:{{.Port}}/ws/${SESSION_ID}`);
+      ws.binaryType = 'arraybuffer';
+      ws.onopen  = () => {
+        clearTimeout(reconnectTimer);
+        // Resize is deferred to replay-end. Safety net in case replay-end is
+        // never sent (old daemon or connection drop before the marker arrives).
+        setTimeout(() => { if (!replayDone) { replayDone = true; fitAddon.fit(); sendResize(); } }, 1000);
+      };
+      ws.onmessage = (e) => {
+        if (typeof e.data === 'string') {
+          try {
+            const m = JSON.parse(e.data);
+            if      (m.type === 'meta')        applyMeta(m);
+            else if (m.type === 'displaced')   showDisplaced();
+            else if (m.type === 'replay-end')  { replayDone = true; fitAddon.fit(); sendResize(); }
+          } catch (_) {}
+        } else {
+          term.write(new Uint8Array(e.data));
+        }
+      };
+      ws.onclose = (e) => {
+        if (e.code === 4001) { showEnded(); return; }       // session process exited
+        if (e.code === 4002) { showNotFound(); return; }    // session doesn't exist
+        reconnectTimer = setTimeout(connect, 2000);
+      };
+      ws.onerror = () => ws.close();
+    }
+
+    function showEnded() {
+      document.getElementById('ended-overlay').classList.add('show');
+    }
+
+    function showNotFound() {
+      document.title = 'Session not found';
+      document.getElementById('not-found-overlay').classList.add('show');
+    }
+
+    function closeTab() {
+      // Ask the extension content script to close this tab.
+      // Falls back to window.close() for script-opened tabs (e.g. Cmd+click from sidebar).
+      window.postMessage({ type: 'ttyrannosaurus:closeTab' }, '*');
+      setTimeout(() => window.close(), 50);
+    }
+
+    document.getElementById('btn-close-tab').addEventListener('click', closeTab);
+    document.getElementById('btn-close-stale').addEventListener('click', closeTab);
+    document.getElementById('btn-new-terminal').addEventListener('click', () => {
+      window.location.href = `http://127.0.0.1:{{.Port}}/s/tty/new`;
+    });
+
+    // ── Metadata frames ────────────────────────────────────────────────────
+
+    function applyMeta(meta) {
+      if (meta.name)    document.title = meta.name;
+      if (meta.program && !meta.name) document.title = meta.program;
+      // favicon is always present in the message; empty string means revert to default.
+      if ('favicon' in meta) setFavicon(meta.favicon);
+    }
+
+    function showDisplaced() {
+      document.getElementById('displaced-overlay').classList.add('show');
+    }
+
+    document.getElementById('btn-bring-here').addEventListener('click', () => {
+      // Reload reconnects this tab's WebSocket, which displaces the other tab.
+      location.reload();
+    });
+    document.getElementById('btn-keep-watching').addEventListener('click', () => {
+      document.getElementById('displaced-overlay').classList.remove('show');
+    });
+
+    // xterm.js fires onTitleChange when it processes OSC 2 sequences directly
+    // from the PTY stream. This is the fastest path for Claude Code's tab
+    // renaming — no WebSocket round-trip needed.
+    term.onTitleChange(title => {
+      document.title = title;
+      // Also tell the daemon so the sidebar picks it up via /api/sessions.
+      fetch(`${DAEMON}/api/sessions/${SESSION_ID}/meta`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: title }),
+      }).catch(() => {});
+    });
+
+    function setFavicon(url) {
+      const link = document.getElementById('favicon') || document.querySelector("link[rel~='icon']");
+      if (!link) return;
+      if (!url) {
+        link.href = '/static/ttyrannosaurus.svg';
+        return;
+      }
+      // Proxy external URLs through the daemon to avoid mixed-content blocks and
+      // CORS restrictions — the browser treats everything as same-origin this way.
+      link.href = url.startsWith('http') ? `/api/favicon?url=${encodeURIComponent(url)}` : url;
+    }
+
+    term.onData(data => {
+      // Block until replay is done — xterm.js emits DA responses while processing
+      // the replay buffer, and forwarding them to the PTY corrupts readline input.
+      if (!replayDone) return;
+      if (ws && ws.readyState === WebSocket.OPEN) {
+        ws.send(new TextEncoder().encode(data));
+      }
+    });
+
+    // Only resize after replay is done — the observer fires on first observe() and
+    // on any viewport change, which would send SIGWINCH while the DA round-trip
+    // from replay-end is still in flight and corrupt readline input.
+    const resizeObserver = new ResizeObserver(() => { fitAddon.fit(); if (replayDone) sendResize(); });
+    resizeObserver.observe(document.getElementById('terminal'));
+    window.addEventListener('resize', () => { fitAddon.fit(); if (replayDone) sendResize(); });
+
+    connect();
+  </script>
+</body>
+</html>

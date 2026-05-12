@@ -1,0 +1,199 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>ttyrannosaurus settings</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: system-ui, -apple-system, sans-serif;
+      font-size: 14px;
+      max-width: 700px;
+      margin: 40px auto;
+      padding: 0 24px 60px;
+      color: #222;
+      line-height: 1.5;
+    }
+    h1 { font-size: 22px; font-weight: 600; margin-bottom: 4px; }
+    .subtitle { color: #666; margin-bottom: 32px; font-size: 13px; }
+    h2 { font-size: 15px; font-weight: 600; margin: 28px 0 8px; }
+    .hint { font-size: 12px; color: #888; margin-bottom: 12px; }
+    code { font-family: monospace; background: #f3f3f3; padding: 1px 4px; border-radius: 3px; }
+
+    .actions { margin-top: 24px; display: flex; align-items: center; gap: 12px; }
+    .save-btn {
+      background: #111;
+      color: #fff;
+      border: none;
+      border-radius: 5px;
+      padding: 8px 20px;
+      font-size: 14px;
+      cursor: pointer;
+    }
+    .save-btn:hover { background: #333; }
+    .status { font-size: 13px; }
+    .status.ok { color: #2a2; }
+    .status.err { color: #e33; }
+    .offline { color: #e33; font-size: 13px; margin-top: 8px; }
+
+    /* ── Radio groups ── */
+    .radio-group { display: flex; flex-direction: column; gap: 10px; margin: 4px 0; }
+    .radio-option { display: flex; align-items: flex-start; gap: 10px; cursor: pointer; }
+    .radio-option input[type=radio] { margin-top: 3px; flex-shrink: 0; }
+    .radio-option .label { font-size: 13px; font-weight: 500; }
+    .radio-option .desc  { font-size: 12px; color: #888; margin-top: 1px; }
+
+    /* ── Text fields ── */
+    .field-row { display: flex; flex-direction: column; gap: 4px; margin-bottom: 14px; }
+    .field-row label { font-size: 12px; font-weight: 500; color: #555; }
+    .field-row input[type=text] {
+      padding: 6px 8px;
+      border: 1px solid #ddd;
+      border-radius: 4px;
+      font-size: 13px;
+      font-family: monospace;
+      width: 100%;
+    }
+    .field-row input[type=text]:focus { outline: none; border-color: #888; }
+    .field-row input[type=text]:disabled { background: #f5f5f5; color: #aaa; }
+    .field-hint { font-size: 11px; color: #aaa; margin-top: 2px; }
+
+    /* ── Theme section ── */
+    .theme-area {
+      width: 100%;
+      min-height: 180px;
+      font-family: "SF Mono", "Menlo", monospace;
+      font-size: 12px;
+      padding: 10px 12px;
+      border: 1px solid #ddd;
+      border-radius: 5px;
+      resize: vertical;
+      line-height: 1.6;
+      color: #222;
+    }
+    .theme-area:focus { outline: none; border-color: #888; }
+    .swatches {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+      margin-top: 12px;
+    }
+    .swatch-group { display: flex; flex-direction: column; gap: 3px; align-items: center; }
+    .swatch-group span { font-size: 9px; color: #999; text-align: center; }
+    .swatch {
+      width: 28px; height: 28px;
+      border-radius: 4px;
+      border: 1px solid rgba(0,0,0,0.12);
+    }
+    .swatch-wide { width: 64px; }
+    .swatch-sep { width: 1px; background: #eee; align-self: stretch; margin: 0 2px; }
+  </style>
+</head>
+<body>
+  <h1>ttyrannosaurus</h1>
+  <div class="subtitle">Type <strong>!</strong> in the address bar to open a terminal.</div>
+
+  <div id="daemon-status"></div>
+
+  <h2>Sidebar</h2>
+  <div class="hint">Controls when the sidebar is shown. The toolbar icon is always a manual override.</div>
+  <div class="radio-group" id="sidebar-mode">
+    <label class="radio-option">
+      <input type="radio" name="sidebarMode" value="keep-open">
+      <div>
+        <div class="label">Keep open</div>
+        <div class="desc">Sidebar stays visible regardless of which tab is active.</div>
+      </div>
+    </label>
+    <label class="radio-option">
+      <input type="radio" name="sidebarMode" value="open-when-terminal">
+      <div>
+        <div class="label">Open when in terminal</div>
+        <div class="desc">Sidebar opens automatically when a terminal tab is active, hides otherwise.</div>
+      </div>
+    </label>
+  </div>
+
+  <hr style="border:none;border-top:1px solid #eee;margin:28px 0 0">
+
+  <h2>tmux</h2>
+  <div class="hint">When enabled, each session runs inside a tmux session — terminals survive daemon restarts and can be reconnected from any tab.</div>
+
+  <div class="radio-group" id="tmux-mode" style="margin-bottom:16px">
+    <label class="radio-option">
+      <input type="radio" name="tmuxEnabled" value="auto">
+      <div>
+        <div class="label">Auto</div>
+        <div class="desc">Use tmux when the <code>tmux</code> binary is available on PATH.</div>
+      </div>
+    </label>
+    <label class="radio-option">
+      <input type="radio" name="tmuxEnabled" value="true">
+      <div>
+        <div class="label">Always on</div>
+        <div class="desc">Require tmux — session creation fails if tmux is not installed.</div>
+      </div>
+    </label>
+    <label class="radio-option">
+      <input type="radio" name="tmuxEnabled" value="false">
+      <div>
+        <div class="label">Disabled</div>
+        <div class="desc">Never use daemon-managed tmux. Terminal sessions end when the daemon stops.</div>
+      </div>
+    </label>
+  </div>
+
+  <div class="field-row">
+    <label for="tmux-socket">Socket name <span class="field-hint">(tmux -L, isolates from your own tmux server)</span></label>
+    <input type="text" id="tmux-socket" placeholder="ttyrannosaurus" spellcheck="false">
+  </div>
+
+  <div class="field-row">
+    <label for="tmux-extra">Extra new-session flags <span class="field-hint">(appended to <code>tmux new-session</code>, space-separated)</span></label>
+    <input type="text" id="tmux-extra" placeholder="-e TERM=xterm-256color" spellcheck="false">
+  </div>
+
+  <div class="actions">
+    <button class="save-btn" id="save-btn">Save</button>
+    <span class="status" id="status"></span>
+  </div>
+
+  <hr style="border:none;border-top:1px solid #eee;margin:28px 0 0">
+
+  <h2>Session Names</h2>
+  <div class="hint">Uses the on-device Gemini Nano model (Chrome 138+) to generate short labels from terminal output.</div>
+
+  <label class="radio-option" style="margin-bottom:14px">
+    <input type="checkbox" id="ai-naming-enabled">
+    <div>
+      <div class="label">Auto-name sessions using on-device AI</div>
+      <div class="desc">Names are updated periodically when new activity is detected. Manual renames are never overridden.</div>
+    </div>
+  </label>
+
+  <div class="field-row" id="ai-interval-row">
+    <label for="ai-naming-interval">Rename interval <span class="field-hint">(minutes)</span></label>
+    <input type="number" id="ai-naming-interval" min="1" max="120" value="1" style="width:80px">
+  </div>
+
+  <hr style="border:none;border-top:1px solid #eee;margin:36px 0 0">
+
+  <h2>Terminal Theme</h2>
+  <div class="hint">
+    Paste your <strong>Ghostty config</strong> (or just the relevant lines — font, colors, palette).
+    Applied immediately to new terminal tabs; no daemon restart needed.
+  </div>
+
+  <textarea class="theme-area" id="theme-config" spellcheck="false"
+    placeholder="font-family = Berkeley Mono&#10;font-size = 13&#10;background = 1a1a1a&#10;foreground = d4d4d4&#10;cursor-color = d4d4d4&#10;palette = 0=#1a1a1a&#10;palette = 1=#f48771&#10;..."></textarea>
+
+  <div class="actions" style="margin-top:12px">
+    <button class="save-btn" id="apply-theme-btn">Apply theme</button>
+    <span class="status" id="theme-status"></span>
+  </div>
+
+  <div class="swatches" id="color-swatches" style="display:none"></div>
+
+  <script src="options.js"></script>
+</body>
+</html>

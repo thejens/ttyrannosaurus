@@ -1,0 +1,77 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      width: 300px;
+      font-family: system-ui, -apple-system, sans-serif;
+      font-size: 13px;
+      background: #fff;
+      color: #111;
+    }
+    header {
+      padding: 10px 12px 8px;
+      border-bottom: 1px solid #eee;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+    header h1 { font-size: 13px; font-weight: 600; color: #333; }
+    header a { font-size: 11px; color: #888; text-decoration: none; }
+    header a:hover { color: #333; }
+    .scheme-group { padding: 4px 0; }
+    .scheme-label {
+      padding: 4px 12px 2px;
+      font-size: 10px;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      color: #999;
+    }
+    .session {
+      display: flex;
+      align-items: center;
+      padding: 6px 12px;
+      cursor: pointer;
+      gap: 8px;
+    }
+    .session:hover { background: #f5f5f5; }
+    .session-path { flex: 1; font-weight: 500; }
+    .session-age { font-size: 11px; color: #aaa; white-space: nowrap; }
+    .session-dead { opacity: 0.4; }
+    .empty {
+      padding: 20px 12px;
+      text-align: center;
+      color: #999;
+      font-size: 12px;
+    }
+    .empty a { color: #666; }
+    footer {
+      padding: 8px 12px;
+      border-top: 1px solid #eee;
+      font-size: 11px;
+      color: #aaa;
+    }
+    footer kbd {
+      background: #f0f0f0;
+      border: 1px solid #ddd;
+      border-radius: 3px;
+      padding: 1px 4px;
+      font-family: monospace;
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>ttyrannosaurus</h1>
+    <a href="#" id="options-link">settings</a>
+  </header>
+  <div id="content"></div>
+  <footer>
+    Press <kbd>t</kbd> in address bar to open a session
+  </footer>
+  <script src="popup.js"></script>
+</body>
+</html>

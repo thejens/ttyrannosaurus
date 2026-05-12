@@ -1,0 +1,40 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>CFBundleName</key>
+  <string>ttyrannosaurus-url-handler</string>
+  <key>CFBundleDisplayName</key>
+  <string>ttyrannosaurus URL Handler</string>
+  <key>CFBundleIdentifier</key>
+  <string>com.ttyrannosaurus.urlhandler</string>
+  <key>CFBundleVersion</key>
+  <string>1</string>
+  <key>CFBundleShortVersionString</key>
+  <string>1.0</string>
+  <key>CFBundleExecutable</key>
+  <string>ttyrannosaurus-url-handler</string>
+  <key>CFBundlePackageType</key>
+  <string>APPL</string>
+  <key>NSPrincipalClass</key>
+  <string>NSApplication</string>
+  <!-- Background-only agent: no Dock icon, no menu bar -->
+  <key>LSUIElement</key>
+  <true/>
+  <key>LSBackgroundOnly</key>
+  <true/>
+  <key>CFBundleURLTypes</key>
+  <array>
+    <dict>
+      <key>CFBundleTypeRole</key>
+      <string>Viewer</string>
+      <key>CFBundleURLName</key>
+      <string>com.ttyrannosaurus.tty</string>
+      <key>CFBundleURLSchemes</key>
+      <array>
+        <string>ttyrannosaurus</string>
+      </array>
+    </dict>
+  </array>
+</dict>
+</plist>

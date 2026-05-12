@@ -1,0 +1,22 @@
+# Build output
+bin/
+
+# Downloaded xterm.js assets (fetched by `make static-assets`)
+daemon/static/xterm.js
+daemon/static/xterm.js.map
+daemon/static/xterm.css
+daemon/static/xterm-addon-fit.js
+daemon/static/xterm-addon-webgl.js
+daemon/static/xterm-addon-web-links.js
+
+# macOS
+.DS_Store
+
+# Go
+*.test
+*.out
+
+# Editor
+.idea/
+.vscode/
+*.swp
