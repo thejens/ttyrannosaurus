@@ -87,14 +87,38 @@
       padding: 7px 10px;
       cursor: pointer;
       border: 1px solid transparent;
-      transition: background 0.1s;
+      transition: background 0.1s, border-color 0.1s, margin-top 0.13s ease, margin-bottom 0.13s ease;
       position: relative;
     }
     .session-card:hover { background: var(--surface2); }
     .session-card.active { background: var(--surface2); border-color: var(--accent); }
+
+    /* Card being dragged — fade in place so the ghost is visible */
+    .session-card.dragging { opacity: 0.3; pointer-events: none; }
+
+    /* Split-drop target — glow to indicate a new split will be created */
     .session-card.drag-over { border-color: var(--accent); background: var(--drag-over); }
-    .session-card.drag-over-split-left  { border-left:  2px solid var(--accent); }
-    .session-card.drag-over-split-right { border-right: 2px solid var(--accent); }
+
+    /* Reorder drop targets — push cards apart and show a thin accent line at the gap */
+    .session-card.drop-gap-above { margin-top: 46px; }
+    .session-card.drop-gap-above::before {
+      content: '';
+      position: absolute;
+      top: -5px; left: 0; right: 0;
+      height: 2px;
+      background: var(--accent);
+      border-radius: 1px;
+    }
+    .session-card.drop-gap-below { margin-bottom: 46px; }
+    .session-card.drop-gap-below::after {
+      content: '';
+      position: absolute;
+      bottom: -5px; left: 0; right: 0;
+      height: 2px;
+      background: var(--accent);
+      border-radius: 1px;
+    }
+
     .session-card[draggable="true"] { cursor: grab; }
 
     .card-top { display: flex; align-items: center; gap: 6px; }

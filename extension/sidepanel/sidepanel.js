@@ -6,7 +6,9 @@ const BASE = 'http://127.0.0.1:7071';
 let sessions = [];
 let tabMap = {};
 let currentTabId = null;
-let dragSourceId = null;
+let dragSourceId  = null;
+let justDropped   = false; // suppress the click that fires after mouseup on a drag
+let sessionOrder  = [];    // user-defined ordering: array of session IDs
 let customNames = {}; // sessionId → user-set name (manual rename, never auto-overridden)
 let aiNames    = {}; // sessionId → AI-generated name (updated periodically)
 
@@ -29,17 +31,19 @@ async function init() {
   currentTabId = activeTab?.id ?? null;
 
   // Load persisted names and AI naming settings.
-  const stored = await chrome.storage.sync.get(['sessionNames', 'aiSessionNames', 'aiNaming']);
-  customNames = stored.sessionNames   || {};
-  aiNames     = stored.aiSessionNames || {};
-  const aiCfg = stored.aiNaming       || {};
+  const stored = await chrome.storage.sync.get(['sessionNames', 'aiSessionNames', 'aiNaming', 'sessionOrder']);
+  customNames  = stored.sessionNames   || {};
+  aiNames      = stored.aiSessionNames || {};
+  sessionOrder = stored.sessionOrder   || [];
+  const aiCfg  = stored.aiNaming       || {};
   aiNamingEnabled    = aiCfg.enabled !== false;
   aiNamingIntervalMs = ((aiCfg.intervalMinutes || 1) * 60_000);
 
   chrome.storage.onChanged.addListener((changes, area) => {
     if (area !== 'sync') return;
-    if ('sessionNames'   in changes) { customNames = changes.sessionNames.newValue   || {}; scheduleRender(); }
-    if ('aiSessionNames' in changes) { aiNames     = changes.aiSessionNames.newValue || {}; scheduleRender(); }
+    if ('sessionNames'   in changes) { customNames  = changes.sessionNames.newValue   || {}; scheduleRender(); }
+    if ('aiSessionNames' in changes) { aiNames      = changes.aiSessionNames.newValue || {}; scheduleRender(); }
+    if ('sessionOrder'   in changes) { sessionOrder = changes.sessionOrder.newValue   || []; scheduleRender(); }
     if ('aiNaming' in changes) {
       const v = changes.aiNaming.newValue || {};
       aiNamingEnabled    = v.enabled !== false;
@@ -199,7 +203,7 @@ function renderSessions() {
   const emptyEl = container.querySelector('.empty');
   if (emptyEl) emptyEl.remove();
 
-  const sorted = [...sessions].sort((a, b) => new Date(b.lastSeen) - new Date(a.lastSeen));
+  const sorted = orderedSessions();
   const counts = tabSessionCounts();
   const sharedTabIds = new Set(Object.entries(counts).filter(([, n]) => n > 1).map(([id]) => id));
 
@@ -401,51 +405,125 @@ function initContainerEvents() {
   });
 
   container.addEventListener('click', e => {
+    if (justDropped) return; // drag just ended — suppress the synthetic click
     const card = e.target.closest('.session-card');
     if (!card) return;
     if (e.target.closest('.kill-btn')) {
       handleKill(card.dataset.id);
       return;
     }
-    if (e.target.closest('.rename-input')) return; // don't navigate while renaming
+    if (e.target.closest('.rename-input')) return;
     handleCardClick(card.dataset.id);
   });
+
+  let dropState = null; // { cardId, zone: 'before'|'after'|'split' }
+
+  function clearIndicators() {
+    container.querySelectorAll('.drop-gap-above, .drop-gap-below, .drag-over')
+      .forEach(el => el.classList.remove('drop-gap-above', 'drop-gap-below', 'drag-over'));
+    dropState = null;
+  }
+
+  function dropZone(card, clientY) {
+    const { top, height } = card.getBoundingClientRect();
+    const pct = (clientY - top) / height;
+    if (pct < 0.3) return 'before';
+    if (pct > 0.7) return 'after';
+    return 'split';
+  }
+
+  function applyIndicator(card, zone) {
+    if (dropState?.cardId === card.dataset.id && dropState?.zone === zone) return;
+    clearIndicators();
+    dropState = { cardId: card.dataset.id, zone };
+    if (zone === 'before') card.classList.add('drop-gap-above');
+    else if (zone === 'after') card.classList.add('drop-gap-below');
+    else card.classList.add('drag-over');
+  }
 
   container.addEventListener('dragstart', e => {
     const card = e.target.closest('.session-card');
     if (!card) return;
     dragSourceId = card.dataset.id;
     e.dataTransfer.effectAllowed = 'move';
+    // Defer so the browser captures the un-faded card as the drag ghost image
+    requestAnimationFrame(() => card.classList.add('dragging'));
   });
 
   container.addEventListener('dragend', () => {
+    clearIndicators();
+    if (dragSourceId) cardEls.get(dragSourceId)?.classList.remove('dragging');
     dragSourceId = null;
-    container.querySelectorAll('.drag-over').forEach(el => el.classList.remove('drag-over'));
+    // Suppress the click event that the browser fires after mouseup on a drag
+    justDropped = true;
+    setTimeout(() => { justDropped = false; }, 100);
   });
 
   container.addEventListener('dragover', e => {
+    if (!dragSourceId) return;
     const card = e.target.closest('.session-card');
-    if (!card || !dragSourceId || dragSourceId === card.dataset.id) return;
+    if (!card || card.dataset.id === dragSourceId) return;
     e.preventDefault();
-    container.querySelectorAll('.drag-over').forEach(el => el.classList.remove('drag-over'));
-    card.classList.add('drag-over');
+    applyIndicator(card, dropZone(card, e.clientY));
   });
 
-  container.addEventListener('dragleave', e => {
-    const card = e.target.closest('.session-card');
-    if (card && !card.contains(e.relatedTarget)) card.classList.remove('drag-over');
-  });
+  // No dragleave handler needed — dragover fires continuously on the card
+  // currently under the cursor; indicator is updated (or cleared) there.
 
   container.addEventListener('drop', e => {
     e.preventDefault();
     const card = e.target.closest('.session-card');
-    if (!card || !dragSourceId || dragSourceId === card.dataset.id) return;
-    container.querySelectorAll('.drag-over').forEach(el => el.classList.remove('drag-over'));
-    const src = sessions.find(s => s.id === dragSourceId);
-    const dst = sessions.find(s => s.id === card.dataset.id);
-    if (src && dst) openSplit(src, dst);
+    const srcId = dragSourceId;
+    clearIndicators();
+    if (srcId) cardEls.get(srcId)?.classList.remove('dragging');
     dragSourceId = null;
+    justDropped = true;
+    setTimeout(() => { justDropped = false; }, 100);
+
+    if (!card || !srcId || srcId === card.dataset.id) return;
+    const dstId = card.dataset.id;
+    const src = sessions.find(s => s.id === srcId);
+    const dst = sessions.find(s => s.id === dstId);
+    if (!src || !dst) return;
+
+    const zone = dropZone(card, e.clientY);
+    if (zone === 'split') {
+      // If the target is already in a split tab, reorder instead of spawning another tab
+      isInSplitTab(dst) ? reorderSession(srcId, dstId, 'after') : openSplit(src, dst);
+    } else {
+      reorderSession(srcId, dstId, zone);
+    }
   });
+}
+
+// ── Session ordering ────────────────────────────────────────────────────────
+
+function orderedSessions() {
+  const byId = Object.fromEntries(sessions.map(s => [s.id, s]));
+  const result = [];
+  for (const id of sessionOrder) {
+    if (byId[id]) { result.push(byId[id]); delete byId[id]; }
+  }
+  const rest = Object.values(byId).sort((a, b) => new Date(b.lastSeen) - new Date(a.lastSeen));
+  return [...result, ...rest];
+}
+
+function reorderSession(srcId, dstId, position) {
+  const ids = orderedSessions().map(s => s.id);
+  const srcIdx = ids.indexOf(srcId);
+  if (srcIdx !== -1) ids.splice(srcIdx, 1);
+  const dstIdx = ids.indexOf(dstId);
+  if (dstIdx === -1) return;
+  ids.splice(position === 'before' ? dstIdx : dstIdx + 1, 0, srcId);
+  sessionOrder = ids;
+  chrome.storage.sync.set({ sessionOrder });
+  scheduleRender();
+}
+
+function isInSplitTab(sess) {
+  return Object.values(tabMap).some(
+    ({ paths }) => (paths?.length ?? 0) >= 2 && paths.some(p => p === sess.id || p.endsWith(sess.id))
+  );
 }
 
 // ── Action handlers ────────────────────────────────────────────────────────
