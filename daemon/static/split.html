@@ -33,12 +33,18 @@
 </div>
 <script>
   const params = new URLSearchParams(location.search);
-  const base = 'http://localhost:{{.Port}}';
+  const base = 'http://127.0.0.1:{{.Port}}';
   const a = params.get('a') || '';
   const b = params.get('b') || '';
 
-  if (a) document.getElementById('frame-a').src = `${base}/s/${a}`;
-  if (b) document.getElementById('frame-b').src = `${base}/s/${b}`;
+  // Session IDs (no "/") → /connect/{id} to reconnect the existing PTY.
+  // scheme/path specs (contain "/") → /s/{spec} to create/resolve a session.
+  function frameURL(spec) {
+    return spec.includes('/') ? `${base}/s/${spec}` : `${base}/connect/${spec}`;
+  }
+
+  if (a) document.getElementById('frame-a').src = frameURL(a);
+  if (b) document.getElementById('frame-b').src = frameURL(b);
 
   // ── Draggable divider ──────────────────────────────────────────────────
   const divider = document.getElementById('divider');
