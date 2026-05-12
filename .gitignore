@@ -20,3 +20,6 @@ daemon/static/xterm-addon-web-links.js
 .idea/
 .vscode/
 *.swp
+
+# Claude Code internal skills/config
+.claude/

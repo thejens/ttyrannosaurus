@@ -521,16 +521,32 @@ async function maybeAiName(id) {
   try {
     const ai = await LanguageModel.create({
       ...langOpts,
-      systemPrompt: '2–4 word label only. No sentences. No explanation. Examples: "Python web server" "Git rebase" "Docker build" "Claude coding"',
+      systemPrompt: 'You label terminal sessions with a 2–4 word phrase.',
     });
     const input = meaningful.slice(-15).join('\n');
-    const raw = await ai.prompt(`Terminal output:\n${input}\n\nLabel:`);
+
+    // responseConstraint (Chrome 137+) forces the model to return valid JSON
+    // matching the schema — no reasoning, no markdown, no explanation possible.
+    const schema = {
+      type: 'object',
+      properties: { name: { type: 'string' } },
+      required: ['name'],
+      additionalProperties: false,
+    };
+    const raw = await ai.prompt(
+      `Label this terminal session in 2–4 words based on its recent output:\n\n${input}`,
+      { responseConstraint: schema },
+    );
     ai.destroy();
 
-    // Strip reasoning preambles the model sometimes emits despite instructions.
-    let name = raw.trim();
-    const preambleRe = /^(?:based on [\w\s,]+?(?:named?|is|called|label(?:ed)?)[:\s]+|the (?:session|terminal) (?:is|seems?)[:\s]+)/i;
-    name = name.replace(preambleRe, '').replace(/^["']|["'.,]$/g, '').trim().slice(0, 50);
+    let name = '';
+    try {
+      name = JSON.parse(raw).name ?? '';
+    } catch (_) {
+      // Fallback: model didn't honour the constraint — strip markdown and take first words
+      name = raw.replace(/\*+([^*]*)\*+/g, '$1').split(/\n|explanation:|based on/i)[0];
+    }
+    name = name.replace(/^["']|["'.,!?]$/g, '').trim().slice(0, 50);
 
     if (name && name.length >= 3 && name.split(/\s+/).length <= 6) {
       await saveAiName(id, name);
