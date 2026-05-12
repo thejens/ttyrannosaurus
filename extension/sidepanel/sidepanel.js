@@ -421,29 +421,72 @@ function initContainerEvents() {
     handleCardClick(card.dataset.id);
   });
 
-  let dropState = null; // { cardId, zone: 'before'|'after'|'split' }
+  // dropPoint: { type:'reorder', insertBeforeId: string|null } | { type:'split', targetId: string }
+  let dropPoint = null;
 
   function clearIndicators() {
     container.querySelectorAll('.drop-gap-above, .drop-gap-below, .drag-over')
       .forEach(el => el.classList.remove('drop-gap-above', 'drop-gap-below', 'drag-over'));
-    dropState = null;
+    dropPoint = null;
   }
 
-  function dropZone(card, clientY) {
-    const { top, height } = card.getBoundingClientRect();
-    const pct = (clientY - top) / height;
-    if (pct < 0.3) return 'before';
-    if (pct > 0.7) return 'after';
-    return 'split';
+  // Determines where the dragged card would land given a cursor Y position.
+  //
+  // Reorder logic uses nearest-gap: compute the Y midpoint of every gap
+  // (before first card, between consecutive cards, after last card) and snap
+  // to the closest one. This means the indicator only moves when the cursor
+  // crosses a gap midpoint, not a card midpoint — no jitter at card edges.
+  //
+  // Split logic: if the cursor is in the centre 40% of a card, it's a split.
+  // Split is checked first so it takes priority when inside a card.
+  function computeDropPoint(clientY) {
+    const cards = [...container.querySelectorAll('.session-card:not(.dragging)')];
+    if (!cards.length) return { type: 'reorder', insertBeforeId: null };
+    const rects = cards.map(c => c.getBoundingClientRect());
+
+    // Split zone: cursor in middle 40% of any card
+    for (let i = 0; i < cards.length; i++) {
+      const r = rects[i];
+      if (clientY >= r.top + r.height * 0.3 && clientY <= r.bottom - r.height * 0.3) {
+        return { type: 'split', targetId: cards[i].dataset.id };
+      }
+    }
+
+    // Reorder: find nearest gap.
+    // Gaps: top of first card, midpoints between consecutive cards, bottom of last card.
+    const gaps = [
+      { y: rects[0].top,                    insertBeforeId: cards[0].dataset.id },
+      ...rects.slice(0, -1).map((r, i) => ({
+        y: (r.bottom + rects[i + 1].top) / 2,
+        insertBeforeId: cards[i + 1].dataset.id,
+      })),
+      { y: rects[rects.length - 1].bottom,  insertBeforeId: null },
+    ];
+
+    let best = gaps[0];
+    let bestDist = Math.abs(clientY - gaps[0].y);
+    for (const g of gaps) {
+      const d = Math.abs(clientY - g.y);
+      if (d < bestDist) { bestDist = d; best = g; }
+    }
+    return { type: 'reorder', insertBeforeId: best.insertBeforeId };
   }
 
-  function applyIndicator(card, zone) {
-    if (dropState?.cardId === card.dataset.id && dropState?.zone === zone) return;
+  function applyIndicator(point) {
+    // Skip DOM update when nothing changed
+    const key = JSON.stringify(point);
+    if (dropPoint && JSON.stringify(dropPoint) === key) return;
     clearIndicators();
-    dropState = { cardId: card.dataset.id, zone };
-    if (zone === 'before') card.classList.add('drop-gap-above');
-    else if (zone === 'after') card.classList.add('drop-gap-below');
-    else card.classList.add('drag-over');
+    dropPoint = point;
+    if (point.type === 'split') {
+      cardEls.get(point.targetId)?.classList.add('drag-over');
+    } else if (point.insertBeforeId) {
+      cardEls.get(point.insertBeforeId)?.classList.add('drop-gap-above');
+    } else {
+      // Append at end — show indicator below last visible card
+      const last = container.querySelector('.session-card:not(.dragging):last-of-type');
+      last?.classList.add('drop-gap-below');
+    }
   }
 
   container.addEventListener('dragstart', e => {
@@ -452,17 +495,17 @@ function initContainerEvents() {
     dragSourceId = card.dataset.id;
     e.dataTransfer.effectAllowed = 'move';
 
-    // Build a styled ghost image so the browser doesn't use the faded/collapsed card.
-    // Clone → park offscreen → apply transform → rasterize → remove immediately.
+    // Custom ghost: clone the card, park it offscreen, tilt it, let the browser
+    // rasterise it, then remove. requestAnimationFrame collapses the real card
+    // AFTER the ghost has been captured so the ghost still looks full.
     const { offsetWidth: w, offsetHeight: h } = card;
     const clone = card.cloneNode(true);
     clone.style.cssText = `position:absolute;left:-${w + 20}px;top:0;width:${w}px;pointer-events:none;`;
-    clone.children[0] && (clone.children[0].style.transform = 'scale(0.92) rotate(-2deg)');
+    if (clone.firstElementChild) clone.firstElementChild.style.transform = 'scale(0.92) rotate(-2deg)';
     document.body.appendChild(clone);
     e.dataTransfer.setDragImage(clone, w / 2, h / 2);
     setTimeout(() => document.body.removeChild(clone), 0);
 
-    // Hide the card from the list after the browser has captured the ghost.
     requestAnimationFrame(() => card.classList.add('dragging'));
   });
 
@@ -470,44 +513,40 @@ function initContainerEvents() {
     clearIndicators();
     if (dragSourceId) cardEls.get(dragSourceId)?.classList.remove('dragging');
     dragSourceId = null;
-    // Suppress the click event that the browser fires after mouseup on a drag
     justDropped = true;
     setTimeout(() => { justDropped = false; }, 100);
   });
 
   container.addEventListener('dragover', e => {
     if (!dragSourceId) return;
-    const card = e.target.closest('.session-card');
-    if (!card || card.dataset.id === dragSourceId) return;
+    // Always prevent default — this marks the container as a valid drop target
+    // for the browser, preventing the "ghost flies back" return animation.
     e.preventDefault();
-    applyIndicator(card, dropZone(card, e.clientY));
+    e.dataTransfer.dropEffect = 'move';
+    applyIndicator(computeDropPoint(e.clientY));
   });
-
-  // No dragleave handler needed — dragover fires continuously on the card
-  // currently under the cursor; indicator is updated (or cleared) there.
 
   container.addEventListener('drop', e => {
     e.preventDefault();
-    const card = e.target.closest('.session-card');
     const srcId = dragSourceId;
+    const point = dropPoint ?? computeDropPoint(e.clientY);
+
     clearIndicators();
     if (srcId) cardEls.get(srcId)?.classList.remove('dragging');
     dragSourceId = null;
     justDropped = true;
     setTimeout(() => { justDropped = false; }, 100);
 
-    if (!card || !srcId || srcId === card.dataset.id) return;
-    const dstId = card.dataset.id;
+    if (!srcId) return;
     const src = sessions.find(s => s.id === srcId);
-    const dst = sessions.find(s => s.id === dstId);
-    if (!src || !dst) return;
+    if (!src) return;
 
-    const zone = dropZone(card, e.clientY);
-    if (zone === 'split') {
-      // If the target is already in a split tab, reorder instead of spawning another tab
-      isInSplitTab(dst) ? reorderSession(srcId, dstId, 'after') : openSplit(src, dst);
+    if (point.type === 'split') {
+      const dst = sessions.find(s => s.id === point.targetId);
+      if (!dst || srcId === point.targetId) return;
+      isInSplitTab(dst) ? reorderSession(srcId, point.targetId, 'after') : openSplit(src, dst);
     } else {
-      reorderSession(srcId, dstId, zone);
+      reorderSession(srcId, point.insertBeforeId);
     }
   });
 }
@@ -524,13 +563,18 @@ function orderedSessions() {
   return [...result, ...rest];
 }
 
-function reorderSession(srcId, dstId, position) {
+// insertBeforeId: the session ID to insert src before, or null to append at end.
+function reorderSession(srcId, insertBeforeId) {
   const ids = orderedSessions().map(s => s.id);
   const srcIdx = ids.indexOf(srcId);
   if (srcIdx !== -1) ids.splice(srcIdx, 1);
-  const dstIdx = ids.indexOf(dstId);
-  if (dstIdx === -1) return;
-  ids.splice(position === 'before' ? dstIdx : dstIdx + 1, 0, srcId);
+  if (insertBeforeId) {
+    const dstIdx = ids.indexOf(insertBeforeId);
+    if (dstIdx === -1) ids.push(srcId);
+    else ids.splice(dstIdx, 0, srcId);
+  } else {
+    ids.push(srcId);
+  }
   sessionOrder = ids;
   chrome.storage.sync.set({ sessionOrder });
   scheduleRender();
