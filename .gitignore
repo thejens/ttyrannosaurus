@@ -21,5 +21,7 @@ daemon/static/xterm-addon-web-links.js
 .vscode/
 *.swp
 
-# Claude Code internal skills/config
-.claude/
+# Claude Code — exclude private state, keep public skills
+.claude/memory/
+.claude/plans/
+.claude/todos/
