@@ -242,11 +242,16 @@ function renderSessions() {
       cardData.set(s.id, cacheKey);
     }
 
-    // Maintain sort order without moving cards that are already in position.
-    if (prevEl) {
-      if (el.previousElementSibling !== prevEl) prevEl.after(el);
-    } else {
-      if (el !== container.firstElementChild) container.prepend(el);
+    // Freeze DOM ordering while a drag is active — the dragged card is
+    // display:none so sibling comparisons are unreliable. The drop handler
+    // calls scheduleRender() after setting dragSourceId = null, which runs
+    // a clean reorder with the card restored to its new position.
+    if (!dragSourceId) {
+      if (prevEl) {
+        if (el.previousElementSibling !== prevEl) prevEl.after(el);
+      } else {
+        if (el !== container.firstElementChild) container.prepend(el);
+      }
     }
     prevEl = el;
   }
@@ -446,7 +451,18 @@ function initContainerEvents() {
     if (!card) return;
     dragSourceId = card.dataset.id;
     e.dataTransfer.effectAllowed = 'move';
-    // Defer so the browser captures the un-faded card as the drag ghost image
+
+    // Build a styled ghost image so the browser doesn't use the faded/collapsed card.
+    // Clone → park offscreen → apply transform → rasterize → remove immediately.
+    const { offsetWidth: w, offsetHeight: h } = card;
+    const clone = card.cloneNode(true);
+    clone.style.cssText = `position:absolute;left:-${w + 20}px;top:0;width:${w}px;pointer-events:none;`;
+    clone.children[0] && (clone.children[0].style.transform = 'scale(0.92) rotate(-2deg)');
+    document.body.appendChild(clone);
+    e.dataTransfer.setDragImage(clone, w / 2, h / 2);
+    setTimeout(() => document.body.removeChild(clone), 0);
+
+    // Hide the card from the list after the browser has captured the ghost.
     requestAnimationFrame(() => card.classList.add('dragging'));
   });
 

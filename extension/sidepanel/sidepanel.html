@@ -93,8 +93,8 @@
     .session-card:hover { background: var(--surface2); }
     .session-card.active { background: var(--surface2); border-color: var(--accent); }
 
-    /* Card being dragged — fade in place so the ghost is visible */
-    .session-card.dragging { opacity: 0.3; pointer-events: none; }
+    /* Card being dragged — collapse to zero height so it disappears from the list */
+    .session-card.dragging { display: none; }
 
     /* Split-drop target — glow to indicate a new split will be created */
     .session-card.drag-over { border-color: var(--accent); background: var(--drag-over); }
