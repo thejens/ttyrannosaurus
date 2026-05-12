@@ -724,10 +724,35 @@ function sessionURL(sess) {
 }
 
 function openSplit(sessA, sessB) {
-  // Prefer session IDs so the split view reconnects existing PTYs.
   const a = sessA.id || `${sessA.scheme}/${sessA.path || 'new'}`;
   const b = sessB.id || `${sessB.scheme}/${sessB.path || 'new'}`;
-  chrome.tabs.create({ url: `${BASE}/split?a=${encodeURIComponent(a)}&b=${encodeURIComponent(b)}` });
+  const url = `${BASE}/split?a=${encodeURIComponent(a)}&b=${encodeURIComponent(b)}`;
+
+  // Reuse an existing tab rather than always spawning a new one.
+  // Prefer to navigate sessA's tab (the one being dragged), then sessB's.
+  // Close the other tab if it's a plain single-session tab (not already a split).
+  const entryA = findTabEntry(sessA);
+  const entryB = findTabEntry(sessB);
+  const tabIdA = entryA ? parseInt(entryA[0]) : null;
+  const tabIdB = entryB ? parseInt(entryB[0]) : null;
+
+  // Decide which existing tab to reuse and which to close.
+  const reuseId = tabIdA ?? tabIdB;
+  const closeId = reuseId === tabIdA ? tabIdB : tabIdA;
+
+  if (reuseId) {
+    chrome.tabs.update(reuseId, { url, active: true });
+  } else {
+    chrome.tabs.create({ url });
+  }
+
+  // Close the other single-session tab — but only if it's not a split view
+  // already (those paths.length >= 2) and not the same tab we just reused.
+  if (closeId && closeId !== reuseId) {
+    const closeEntry = closeId === tabIdA ? entryA : entryB;
+    const isSplit = (closeEntry?.[1]?.paths?.length ?? 0) >= 2;
+    if (!isSplit) chrome.tabs.remove(closeId);
+  }
 }
 
 // ── Utilities ──────────────────────────────────────────────────────────────
