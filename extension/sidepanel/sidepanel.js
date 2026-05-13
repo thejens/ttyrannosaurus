@@ -651,12 +651,28 @@ async function maybeAiName(id) {
   const meaningful = lines.filter(l => l.trim().length > 2);
   if (meaningful.length < 3) return;
 
+  const isClaudeSession = sess.scheme === 'claude';
+
   try {
-    const ai = await LanguageModel.create({
-      ...langOpts,
-      systemPrompt: 'You label terminal sessions with a 2–4 word phrase.',
-    });
-    const input = meaningful.slice(-15).join('\n');
+    const systemPrompt = isClaudeSession
+      // Steer away from the tool name toward the actual task being worked on.
+      ? 'You label Claude AI coding sessions with a 2–4 word phrase describing the task or feature being built, not the tool being used.'
+      : 'You label terminal sessions with a 2–4 word phrase.';
+
+    const ai = await LanguageModel.create({ ...langOpts, systemPrompt });
+
+    // For Claude sessions, prepend structured context that the terminal lines
+    // alone don't convey: the project (from CWD) and Claude's current activity.
+    const contextLines = [];
+    if (isClaudeSession) {
+      const m = sess.meta || {};
+      if (m.cwd)    contextLines.push(`Project directory: ${m.cwd}`);
+      if (m.detail) contextLines.push(`Current activity: ${m.detail}`);
+    }
+    const outputBlock = meaningful.slice(-15).join('\n');
+    const input = contextLines.length
+      ? `${contextLines.join('\n')}\n\nRecent terminal output:\n${outputBlock}`
+      : outputBlock;
 
     // responseConstraint (Chrome 137+) forces the model to return valid JSON
     // matching the schema — no reasoning, no markdown, no explanation possible.
@@ -666,8 +682,9 @@ async function maybeAiName(id) {
       required: ['name'],
       additionalProperties: false,
     };
+    const sessionKind = isClaudeSession ? 'Claude coding' : 'terminal';
     const raw = await ai.prompt(
-      `Label this terminal session in 2–4 words based on its recent output:\n\n${input}`,
+      `Label this ${sessionKind} session in 2–4 words based on its recent output:\n\n${input}`,
       { responseConstraint: schema },
     );
     ai.destroy();
