@@ -162,10 +162,11 @@ func (l *lineParser) Feed(line string) *Meta {
 	return nil
 }
 
+// expandCaptures replaces $1, $2, … with the corresponding regex match groups.
+// Iterates in reverse so $2 is replaced before $1, preventing $1 from matching
+// inside a two-digit placeholder like $12.
 func expandCaptures(tmpl string, matches []string) string {
 	for i := len(matches) - 1; i >= 1; i-- {
-		tmpl = strings.ReplaceAll(tmpl, "$"+strings.Repeat("0", len(matches)-i)+string(rune('0'+i)), matches[i])
-		// simple form: $1, $2, ...
 		tmpl = strings.ReplaceAll(tmpl, "$"+string(rune('0'+i)), matches[i])
 	}
 	return tmpl

@@ -6,9 +6,6 @@ import (
 	"html/template"
 	"log"
 	"net/http"
-	"sync"
-
-	"github.com/thejens/ttyrannosaurus/daemon/config"
 )
 
 //go:embed static
@@ -24,10 +21,10 @@ type terminalPageData struct {
 	Port       int
 }
 
-func serveTerminalPage(w http.ResponseWriter, sessionID string, _ config.TerminalTheme) {
-	s_themeMu.RLock()
-	theme := s_theme
-	s_themeMu.RUnlock()
+func (s *server) serveTerminalPage(w http.ResponseWriter, sessionID string) {
+	s.themeMu.RLock()
+	theme := s.theme
+	s.themeMu.RUnlock()
 
 	themeJSON, err := json.Marshal(theme)
 	if err != nil {
@@ -42,7 +39,7 @@ func serveTerminalPage(w http.ResponseWriter, sessionID string, _ config.Termina
 		SessionID:  sessionID,
 		ThemeJSON:  template.JS(themeJSON),
 		Background: template.CSS(bg),
-		Port:       s_port, // set in main
+		Port:       s.cfg.Port,
 	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	if err := termTmpl.Execute(w, data); err != nil {
@@ -50,21 +47,9 @@ func serveTerminalPage(w http.ResponseWriter, sessionID string, _ config.Termina
 	}
 }
 
-func serveSplitPage(w http.ResponseWriter, port int) {
+func (s *server) serveSplitPage(w http.ResponseWriter) {
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	if err := splitTmpl.Execute(w, map[string]any{"Port": port}); err != nil {
+	if err := splitTmpl.Execute(w, map[string]any{"Port": s.cfg.Port}); err != nil {
 		log.Printf("split template execute: %v", err)
 	}
-}
-
-// s_port and s_theme are set by main() and updated by handlePutTheme so that
-// serveTerminalPage always uses the latest values.
-var s_port  int
-var s_theme config.TerminalTheme
-var s_themeMu sync.RWMutex
-
-func setTheme(t config.TerminalTheme) {
-	s_themeMu.Lock()
-	s_theme = t
-	s_themeMu.Unlock()
 }

@@ -87,21 +87,6 @@ func IsAlive(ts TmuxSession) bool {
 	return err == nil
 }
 
-// LiveNames returns the names of all live sessions on the given socket.
-func LiveNames(socket string) []string {
-	out, err := exec.Command("tmux", "-L", socket, "list-sessions", "-F", "#{session_name}").Output()
-	if err != nil {
-		return nil
-	}
-	var names []string
-	for _, l := range strings.Split(strings.TrimSpace(string(out)), "\n") {
-		if l != "" {
-			names = append(names, l)
-		}
-	}
-	return names
-}
-
 func shellJoinTmux(args []string) string {
 	quoted := make([]string, len(args))
 	for i, a := range args {

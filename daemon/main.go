@@ -36,9 +36,6 @@ func main() {
 		}
 	}
 
-	s_port = cfg.Port
-	setTheme(theme)
-
 	srv := newServer(cfg, resolver, mgr, theme)
 
 	addr := fmt.Sprintf("127.0.0.1:%d", cfg.Port)

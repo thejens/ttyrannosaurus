@@ -209,12 +209,7 @@ func (s *server) handleSession(w http.ResponseWriter, r *http.Request) {
 
 	// Redirect to the stable /connect/{id} URL so the browser's address bar
 	// and the extension's tab tracker always see a unique, bookmarkable URL.
-	// Skip redirect if the request is already on /connect/ (avoids loop).
-	if !strings.HasPrefix(r.URL.Path, "/connect/") {
-		http.Redirect(w, r, "/connect/"+sess.ID, http.StatusFound)
-		return
-	}
-	serveTerminalPage(w, sess.ID, s.theme)
+	http.Redirect(w, r, "/connect/"+sess.ID, http.StatusFound)
 }
 
 // handleConnect serves the terminal page for an already-running session by ID.
@@ -224,11 +219,11 @@ func (s *server) handleConnect(w http.ResponseWriter, r *http.Request) {
 	// Always serve the terminal page — if the session is gone the WebSocket
 	// handler sends close(4002) and the frontend shows "session not found".
 	id := chi.URLParam(r, "sessionID")
-	serveTerminalPage(w, id, s.theme)
+	s.serveTerminalPage(w, id)
 }
 
-func (s *server) handleSplit(w http.ResponseWriter, r *http.Request) {
-	serveSplitPage(w, s.cfg.Port)
+func (s *server) handleSplit(w http.ResponseWriter, _ *http.Request) {
+	s.serveSplitPage(w)
 }
 
 // handleEventsWS upgrades the sidebar connection to WebSocket and streams
@@ -423,8 +418,6 @@ func (s *server) handlePutTheme(w http.ResponseWriter, r *http.Request) {
 	s.themeMu.Lock()
 	s.theme = theme
 	s.themeMu.Unlock()
-	// Also update the global port-visible copy used by serveTerminalPage.
-	setTheme(theme)
 	jsonOK(w, theme)
 }
 
